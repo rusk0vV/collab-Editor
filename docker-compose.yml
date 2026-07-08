@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: collab_user
       POSTGRES_PASSWORD: collab_pass
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
