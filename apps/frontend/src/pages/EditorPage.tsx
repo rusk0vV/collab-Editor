@@ -1,16 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useDocument } from '../hooks/useDocument';
 import { Editor } from '../components/Editor';
 import { CursorOverlay } from '../components/CursorOverlay';
+import { request } from '../lib/api';
+import type { DocumentRecord } from '../lib/api';
 
 /**
- * EditorPage connects the collaborative Quill canvas with live cursor overlays and metadata.
+ * EditorPage restyled to match front.md design system.
+ * Features collapsible sidebar, Topbar edit, Save dots, Stacked avatars, and Share Popover.
  */
 export function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
+
   // Guard authentication
   useEffect(() => {
     if (!localStorage.getItem('token')) {
@@ -28,8 +31,15 @@ export function EditorPage() {
     quillRef
   } = useDocument(id);
 
+  // States
   const [titleInput, setTitleInput] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768);
+  const [sidebarDocs, setSidebarDocs] = useState<DocumentRecord[]>([]);
+  const [shareOpen, setShareOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
+
+  // Refs
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Sync state title to local input
   useEffect(() => {
@@ -38,11 +48,29 @@ export function EditorPage() {
     }
   }, [document]);
 
+  // Load document list for sidebar on mount or document switch
+  useEffect(() => {
+    if (!localStorage.getItem('token')) return;
+    request('/docs')
+      .then(setSidebarDocs)
+      .catch(console.error);
+  }, [id]);
+
+  // Close share popover on click outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setShareOpen(false);
+      }
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+
   const handleTitleBlur = () => {
     if (!document || !titleInput.trim()) return;
     if (titleInput.trim() !== document.title) {
       updateTitle(titleInput.trim()).catch(() => {
-        // Revert title if error
         setTitleInput(document.title);
       });
     }
@@ -55,93 +83,210 @@ export function EditorPage() {
     }
   };
 
-  const handleShareClick = () => {
+  const handleCreateSidebarDoc = async () => {
+    try {
+      const response = await request('/docs', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Untitled document' }),
+      });
+      navigate(`/docs/${response.id}`);
+    } catch (err) {
+      console.error('Failed to create document:', err);
+    }
+  };
+
+  const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href);
     setCopyStatus('copied');
     setTimeout(() => setCopyStatus('idle'), 2000);
+  };
+
+  // Stacked initials helper
+  const getInitials = (name: string) => {
+    return name.substring(0, 1).toUpperCase();
   };
 
   if (loading) {
     return (
       <div className="editor-page-loading">
         <div className="spinner"></div>
-        <p>Loading collaborative editor session...</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Loading collaborative editor session...</p>
       </div>
     );
   }
 
   if (error || !document) {
     return (
-      <div className="editor-page-error glass">
-        <h2>Failed to connect</h2>
-        <p>{error || 'Document not found'}</p>
+      <div className="editor-page-error glass" style={{ padding: '40px', maxWidth: '400px', margin: '100px auto', textAlign: 'center' }}>
+        <h2 style={{ marginBottom: '12px' }}>Failed to connect</h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>{error || 'Document not found'}</p>
         <Link to="/dashboard" className="primary-btn">Back to Dashboard</Link>
       </div>
     );
   }
 
+  // Calculate stack details
+  const displayedAvatars = activeUsers.slice(0, 4);
+  const extraCount = activeUsers.length - displayedAvatars.length;
+
   return (
-    <div className="editor-page">
-      <header className="editor-header glass">
-        <div className="header-left">
-          <Link to="/dashboard" className="back-btn secondary-btn">
-            ← Dashboard
-          </Link>
-          <input
-            type="text"
-            className="doc-title-input"
-            value={titleInput}
-            onChange={(e) => setTitleInput(e.target.value)}
-            onBlur={handleTitleBlur}
-            onKeyDown={handleTitleKeyDown}
-            placeholder="Untitled Document"
-          />
+    <div className="editor-page-container">
+      {/* Topbar (48px tall, fixed, border-bottom) */}
+      <header className="topbar-panel">
+        <div className="topbar-left">
+          {/* Sidebar toggler */}
+          <button 
+            type="button" 
+            className="sidebar-toggle-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title="Toggle Sidebar"
+          >
+            ≡
+          </button>
+          
+          <span className="topbar-logo-text">collab-Editor</span>
+          
+          {/* Inline editable document title */}
+          <div className="topbar-title-edit-container">
+            <input
+              type="text"
+              className="topbar-title-edit-input"
+              value={titleInput}
+              onChange={(e) => setTitleInput(e.target.value)}
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              placeholder="Untitled document"
+            />
+          </div>
         </div>
 
-        <div className="header-right">
-          {/* Active Collaborators count */}
-          <div className="collaborator-badge-container">
-            <span className="live-dot"></span>
-            <span className="collaborator-count">
-              {activeUsers.length + 1} {activeUsers.length === 0 ? 'user' : 'users'} active
-            </span>
-            <div className="collaborator-avatars">
-              {/* Show initials in tiny circles */}
-              <div 
-                className="user-avatar self" 
-                title="You"
-                style={{ border: '2px solid #58a6ff' }}
-              >
-                U
+        <div className="topbar-right">
+          {/* Save Status Indicators */}
+          {/* Currently client saves synchronously on ops. Mock dynamic status based on socket status or server ACK */}
+          <span className="saved-indicator-confirmed">
+            <span className="dot"></span>
+            Saved
+          </span>
+
+          {/* Presence avatars stack */}
+          <div className="presence-avatars-stack">
+            {extraCount > 0 && (
+              <div className="avatar-presence-more">
+                +{extraCount}
               </div>
-              {activeUsers.map(u => (
-                <div 
-                  key={u.userId}
-                  className="user-avatar" 
-                  title={u.name}
-                  style={{ backgroundColor: u.color }}
-                >
-                  {u.name.substring(0, 1).toUpperCase()}
-                </div>
-              ))}
+            )}
+            
+            {displayedAvatars.map((u) => (
+              <div
+                key={u.userId}
+                className="avatar-presence"
+                style={{ backgroundColor: u.color }}
+                title={u.name}
+              >
+                {getInitials(u.name)}
+              </div>
+            ))}
+            
+            {/* Self avatar */}
+            <div
+              className="avatar-presence"
+              style={{ backgroundColor: 'var(--accent)', border: '1px solid var(--text-primary)' }}
+              title="You"
+            >
+              Y
             </div>
           </div>
 
-          <button onClick={handleShareClick} className="share-btn primary-btn">
-            {copyStatus === 'copied' ? 'Link Copied!' : 'Share by Link'}
-          </button>
+          {/* Share popover */}
+          <div className="share-popover-container" ref={shareOpen ? popoverRef : null}>
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ padding: '6px 12px', fontSize: '13px' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShareOpen(prev => !prev);
+              }}
+            >
+              Share
+            </button>
+
+            {shareOpen && (
+              <div className="share-popover-panel">
+                <p>Anyone with this link can view and edit this document.</p>
+                <div className="share-popover-input-row">
+                  <input
+                    type="text"
+                    readOnly
+                    value={window.location.href}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                    onClick={handleCopyLink}
+                  >
+                    {copyStatus === 'copied' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="editor-workspace">
-        <div className="editor-canvas-wrapper glass" style={{ position: 'relative' }}>
-          {/* Mount the Quill wrapper editor */}
-          <Editor onMount={initializeEditor} />
-          
-          {/* Render absolute cursor overlay */}
-          <CursorOverlay quill={quillRef.current} activeUsers={activeUsers} />
-        </div>
-      </main>
+      {/* Main workspace layout */}
+      <div className="editor-workspace-layout">
+        {/* Sidebar (240px wide, collapsible) */}
+        <aside className={sidebarOpen ? 'sidebar-panel' : 'sidebar-panel sidebar-collapsed'}>
+          <div className="sidebar-top">
+            <span className="sidebar-section-label">Your documents</span>
+            
+            <nav className="sidebar-docs-list">
+              {sidebarDocs.map((doc) => (
+                <Link
+                  key={doc.id}
+                  to={`/docs/${doc.id}`}
+                  className={doc.id === id ? 'sidebar-doc-item active' : 'sidebar-doc-item'}
+                >
+                  {doc.title}
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          <div className="sidebar-bottom">
+            <button
+              type="button"
+              className="sidebar-new-doc-btn"
+              onClick={handleCreateSidebarDoc}
+            >
+              + New document
+            </button>
+          </div>
+        </aside>
+
+        {/* Outer editor canvas base container */}
+        <main className="editor-canvas-container">
+          {/* Floating editor white page column */}
+          <div className="editor-floating-page">
+            {/* Header section representing the physical page top */}
+            <div className="editor-page-title-header">
+              <h1>{document.title}</h1>
+              <div style={{ height: '1px', backgroundColor: 'rgba(0,0,0,0.08)', marginTop: '8px', marginBottom: '16px', width: '100%' }}></div>
+            </div>
+
+            {/* Quill editor canvas */}
+            <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <Editor onMount={initializeEditor} />
+              
+              {/* Carets overlay layout */}
+              <CursorOverlay quill={quillRef.current} activeUsers={activeUsers} />
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

@@ -7,8 +7,8 @@ interface EditorProps {
 }
 
 /**
- * Quill Editor wrapper component. Mounts the Quill instance on mount,
- * configures standard toolbar options, and delegates the instance to the parent sync hook.
+ * Quill Editor wrapper component aligned with front.md specifications.
+ * Exposes the simple toolbar config: B I U S | H1 H2 | " code | • 1. |
  */
 export function Editor({ onMount }: EditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -21,19 +21,18 @@ export function Editor({ onMount }: EditorProps) {
     const editorElement = document.createElement('div');
     containerRef.current.appendChild(editorElement);
 
-    // Initialize Quill instance
+    // Initialize Quill instance with specified toolbar configurations
     const quill = new Quill(editorElement, {
       theme: 'snow',
       modules: {
         toolbar: [
-          [{ header: [1, 2, 3, false] }],
           ['bold', 'italic', 'underline', 'strike'],
-          [{ list: 'ordered' }, { list: 'bullet' }],
+          [{ header: 1 }, { header: 2 }],
           ['blockquote', 'code-block'],
-          ['clean'],
+          [{ list: 'bullet' }, { list: 'ordered' }],
         ],
       },
-      placeholder: 'Start writing collaboratively...',
+      placeholder: 'Start writing...',
     });
 
     quillInstanceRef.current = quill;
@@ -52,7 +51,7 @@ export function Editor({ onMount }: EditorProps) {
     <div 
       ref={containerRef} 
       className="editor-mount-point" 
-      style={{ minHeight: '400px', display: 'flex', flexDirection: 'column' }}
+      style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
     />
   );
 }
