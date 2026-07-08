@@ -83,3 +83,7 @@ To run the 150-user load test:
    ```bash
    k6 run -e TEST_DOC_ID=<your-document-uuid> benchmarks/scripts/phase1-baseline.js
    ```
+
+---
+
+*Created and maintained by Ali Sayeed ([@rusk0vV](https://github.com/rusk0vV)).*
