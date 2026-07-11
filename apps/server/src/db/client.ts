@@ -19,16 +19,18 @@ export async function runMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
     console.log('Running database migrations...');
-    const migrationPath = path.join(__dirname, 'migrations', '001-init.sql');
-    
-    if (!fs.existsSync(migrationPath)) {
-      throw new Error(`Migration file not found at: ${migrationPath}`);
-    }
-    
-    const sql = fs.readFileSync(migrationPath, 'utf8');
+    const migrations = ['001-init.sql', '002-clerk-auth.sql'];
     
     await client.query('BEGIN');
-    await client.query(sql);
+    for (const filename of migrations) {
+      const migrationPath = path.join(__dirname, 'migrations', filename);
+      if (!fs.existsSync(migrationPath)) {
+        throw new Error(`Migration file not found at: ${migrationPath}`);
+      }
+      console.log(`Applying migration: ${filename}`);
+      const sql = fs.readFileSync(migrationPath, 'utf8');
+      await client.query(sql);
+    }
     await client.query('COMMIT');
     console.log('Database migrations completed successfully.');
   } catch (error) {
