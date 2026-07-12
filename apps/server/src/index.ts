@@ -1,11 +1,12 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import { authRouter } from './routes/auth';
 import { docsRouter } from './routes/docs';
 import { registerSocketHandlers } from './ws/opHandler';
 import { runMigrations } from './db/client';
+import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node';
 
 const app = express();
 const httpServer = createServer(app);
@@ -26,8 +27,7 @@ app.use(cors({
 app.use(express.json());
 
 // Bind HTTP routes
-app.use('/auth', authRouter);
-app.use('/docs', docsRouter);
+app.use('/docs', ClerkExpressRequireAuth(), docsRouter);
 
 app.get('/health', (_, res) => {
   res.json({ status: 'ok' });

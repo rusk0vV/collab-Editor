@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSocket } from './useSocket';
-import { request } from '../lib/api';
+import { useApi } from '../lib/api';
 import type { DocumentRecord } from '../lib/api';
+import { useAuth } from '@clerk/clerk-react';
 import Delta from 'quill-delta';
 import Quill from 'quill';
 
@@ -20,6 +21,9 @@ export function useDocument(docId: string | undefined) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeUsers, setActiveUsers] = useState<CollaboratorPresence[]>([]);
+  
+  const { request } = useApi();
+  const { userId: clerkUserId } = useAuth();
 
   // Socket connection hook
   const socketRef = useSocket(docId);
@@ -31,18 +35,10 @@ export function useDocument(docId: string | undefined) {
   const bufferOpRef = useRef<Delta | null>(null);
   const userIdRef = useRef<string | null>(null);
 
+  // Sync current Clerk userId to ref
   useEffect(() => {
-    // Read userId from JWT token
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        userIdRef.current = payload.userId;
-      } catch (e) {
-        console.error('Failed to parse JWT payload for userId:', e);
-      }
-    }
-  }, []);
+    userIdRef.current = clerkUserId || null;
+  }, [clerkUserId]);
 
   // 1. Initial Load of document via REST API
   useEffect(() => {
@@ -78,6 +74,7 @@ export function useDocument(docId: string | undefined) {
     socket.on('joined-doc', (data: { docId: string; content: any; revision: number }) => {
       console.log(`Socket joined-doc ACK: revision ${data.revision}`);
       revisionRef.current = data.revision;
+      setDocument(prev => prev ? { ...prev, revision: data.revision } : null);
       if (quillRef.current) {
         // Safe check: sync in case REST load is overridden
         const docDelta = new Delta(data.content.ops);
@@ -111,6 +108,7 @@ export function useDocument(docId: string | undefined) {
     socket.on('op-confirmed', (data: { docId: string; op: any; revision: number }) => {
       console.log(`Op confirmed at revision ${data.revision}`);
       revisionRef.current = data.revision;
+      setDocument(prev => prev ? { ...prev, revision: data.revision } : null);
       pendingOpRef.current = null;
 
       // Dispatch next operations in buffer if any
@@ -160,6 +158,7 @@ export function useDocument(docId: string | undefined) {
       }
 
       revisionRef.current = data.revision;
+      setDocument(prev => prev ? { ...prev, revision: data.revision } : null);
     });
 
     socket.on('error', (err: any) => {

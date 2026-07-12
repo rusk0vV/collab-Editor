@@ -1,7 +1,6 @@
 import { Server, Socket } from 'socket.io';
-import * as jwt from 'jsonwebtoken';
+import { clerkClient } from '@clerk/clerk-sdk-node';
 import { checkDocumentAccess, findDocumentById, updateDocumentContent } from '../db/queries/docs';
-import { findUserById } from '../db/queries/users';
 import { apply, transform, QuillDelta } from '../ot/transform';
 import {
   docPresence,
@@ -10,6 +9,17 @@ import {
   handleLeaveDoc,
   handleDisconnect
 } from './presenceHandler';
+
+async function verifyClerkToken(token: string): Promise<string | null> {
+  try {
+    const payload = await clerkClient.verifyToken(token);
+    return payload.sub; // sub is the Clerk user ID
+  } catch (err) {
+    console.error('Error verifying Clerk token:', err);
+    return null;
+  }
+}
+
 
 export interface HistoryEntry {
   revision: number;
@@ -42,30 +52,31 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-        // Verify JWT token
-        const secret = process.env.JWT_SECRET || 'local_dev_secret_change_in_prod';
-        let decoded: { userId: string; email: string };
-        try {
-          decoded = jwt.verify(token, secret) as { userId: string; email: string };
-        } catch (err) {
-          socket.emit('error', { code: 'UNAUTHORIZED', message: 'Invalid or expired token' });
+                // Verify Clerk token
+        const userId = await verifyClerkToken(token);
+        if (!userId) {
+          socket.emit('error', { code: 'UNAUTHORIZED', message: 'Invalid or expired session' });
           return;
         }
 
         // Check if the user has access to the document
-        const access = await checkDocumentAccess(docId, decoded.userId);
+        const access = await checkDocumentAccess(docId, userId);
         if (!access) {
           socket.emit('error', { code: 'FORBIDDEN', message: 'Access denied to this document' });
           return;
         }
 
-        // Fetch user name
-        const user = await findUserById(decoded.userId);
-        const name = user ? user.name : 'Anonymous';
+        // Fetch user details from Clerk
+        let name = 'Anonymous';
+        try {
+          const user = await clerkClient.users.getUser(userId);
+          name = user.firstName ?? (user.emailAddresses && user.emailAddresses[0] ? user.emailAddresses[0].emailAddress : 'Anonymous');
+        } catch (err) {
+          console.error(`Failed to fetch user name from Clerk for ${userId}:`, err);
+        }
 
         // Initialize and assign metadata to socket session
-        socket.data.userId = decoded.userId;
-        socket.data.email = decoded.email;
+        socket.data.userId = userId;
         socket.data.name = name;
         if (!socket.data.joinedDocs) {
           socket.data.joinedDocs = new Set<string>();
@@ -102,7 +113,7 @@ export function registerSocketHandlers(io: Server): void {
           docMap = new Map();
           docPresence.set(docId, docMap);
         }
-        docMap.set(decoded.userId, {
+        docMap.set(userId, {
           name,
           color: socket.data.color,
           position: null
@@ -126,13 +137,13 @@ export function registerSocketHandlers(io: Server): void {
 
         // Notify other clients in the document room about this user
         socket.to(docId).emit('cursor-update', {
-          userId: decoded.userId,
+          userId,
           name,
           color: socket.data.color,
           position: null
         });
 
-        console.log(`User ${name} (${decoded.userId}) joined document ${docId}`);
+        console.log(`User ${name} (${userId}) joined document ${docId}`);
       } catch (error) {
         console.error('Error in join-doc handler:', error);
         socket.emit('error', { code: 'SERVER_ERROR', message: 'Failed to join document' });

@@ -1,6 +1,5 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
 import { z } from 'zod';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
 import {
   createDocument,
   listDocumentsForUser,
@@ -10,11 +9,24 @@ import {
   checkDocumentAccess,
   addCollaborator
 } from '../db/queries/docs';
+import { upsertUser } from '../db/queries/users';
 
 export const docsRouter = Router();
 
-// Apply authorization middleware to all document routes
-docsRouter.use(authMiddleware);
+// Middleware to automatically upsert/sync the user to the local PostgreSQL database
+docsRouter.use((req: Request, res: Response, next) => {
+  const auth = (req as any).auth;
+  if (auth && auth.userId) {
+    upsertUser(auth.userId)
+      .then(() => next())
+      .catch((error) => {
+        console.error('Error syncing user with local DB:', error);
+        res.status(500).json({ error: 'Internal server error' });
+      });
+  } else {
+    next();
+  }
+});
 
 const createDocSchema = z.object({
   title: z.string().min(1, 'Title is required').optional(),
@@ -28,9 +40,9 @@ const updateTitleSchema = z.object({
  * GET /docs
  * Lists all documents the authenticated user has access to.
  */
-docsRouter.get('/', async (req: AuthRequest, res: Response) => {
+docsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
+    const userId = (req as any).auth.userId;
     const docs = await listDocumentsForUser(userId);
     return res.status(200).json(docs);
   } catch (error) {
@@ -43,9 +55,9 @@ docsRouter.get('/', async (req: AuthRequest, res: Response) => {
  * POST /docs
  * Creates a new document.
  */
-docsRouter.post('/', async (req: AuthRequest, res: Response) => {
+docsRouter.post('/', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
+    const userId = (req as any).auth.userId;
     const parseResult = createDocSchema.safeParse(req.body);
     const title = parseResult.success && parseResult.data.title ? parseResult.data.title : 'Untitled';
     
@@ -62,9 +74,9 @@ docsRouter.post('/', async (req: AuthRequest, res: Response) => {
  * Loads a document's details. Registers the user as an edit collaborator
  * if they open a shared document they don't yet have explicit access to.
  */
-docsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
+docsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
+    const userId = (req as any).auth.userId;
     const docId = req.params.id;
 
     const doc = await findDocumentById(docId);
@@ -89,9 +101,9 @@ docsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
  * PATCH /docs/:id/title
  * Updates the title of the document.
  */
-docsRouter.patch('/:id/title', async (req: AuthRequest, res: Response) => {
+docsRouter.patch('/:id/title', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
+    const userId = (req as any).auth.userId;
     const docId = req.params.id;
 
     const parseResult = updateTitleSchema.safeParse(req.body);
@@ -120,9 +132,9 @@ docsRouter.patch('/:id/title', async (req: AuthRequest, res: Response) => {
  * DELETE /docs/:id
  * Deletes the document. Allowed only for the document owner.
  */
-docsRouter.delete('/:id', async (req: AuthRequest, res: Response) => {
+docsRouter.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.userId;
+    const userId = (req as any).auth.userId;
     const docId = req.params.id;
 
     const doc = await findDocumentById(docId);

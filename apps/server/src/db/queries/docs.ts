@@ -34,9 +34,8 @@ export async function createDocument(title: string, ownerId: string): Promise<Do
  */
 export async function listDocumentsForUser(userId: string): Promise<Array<DocumentRecord & { owner_name: string }>> {
   const result = await pool.query<DocumentRecord & { owner_name: string }>(
-    `SELECT DISTINCT d.id, d.title, d.owner_id, d.content, d.revision, d.created_at, d.updated_at, u.name as owner_name
+    `SELECT DISTINCT d.id, d.title, d.owner_id, d.content, d.revision, d.created_at, d.updated_at, NULL as owner_name
      FROM documents d
-     JOIN users u ON d.owner_id = u.id
      LEFT JOIN collaborators c ON d.id = c.doc_id
      WHERE d.owner_id = $1 OR c.user_id = $1
      ORDER BY d.updated_at DESC`,
