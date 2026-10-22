@@ -1,16 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUser, UserButton } from '@clerk/clerk-react';
 import { useApi } from '../lib/api';
 import type { DocumentRecord } from '../lib/api';
+import { DocMenu } from '../components/DocMenu';
 import {
   FileText,
   Users,
   Activity,
   Bell,
   Plus,
-  Trash2,
-  Edit2,
   Clock,
   ChevronDown
 } from 'lucide-react';
@@ -19,25 +18,13 @@ export function DashboardPage() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeKebabDocId, setActiveKebabDocId] = useState<string | null>(null);
   
   const { user } = useUser();
   const { request } = useApi();
   const navigate = useNavigate();
-  const kebabRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchDocuments();
-  }, []);
-
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
-        setActiveKebabDocId(null);
-      }
-    };
-    window.addEventListener('click', handleOutsideClick);
-    return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
 
   const fetchDocuments = async () => {
@@ -303,50 +290,14 @@ export function DashboardPage() {
                       </span>
                     )}
 
-                    {/* Kebab Action Trigger */}
-                    <div className="relative" ref={activeKebabDocId === doc.id ? kebabRef : null}>
-                      <button
-                        type="button"
-                        className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-pri rounded-md hover:bg-bg-input transition-colors duration-150"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveKebabDocId(prev => prev === doc.id ? null : doc.id);
-                        }}
-                      >
-                        ···
-                      </button>
-
-                      {activeKebabDocId === doc.id && (
-                        <div className="absolute right-0 mt-1 w-28 bg-[#10101E] border border-border-card rounded-md py-1 shadow-lg z-30">
-                          <button
-                            type="button"
-                            className="w-full text-left text-xs px-3 py-1.5 hover:bg-bg-input text-text-pri flex items-center gap-1.5"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveKebabDocId(null);
-                              handleRenameDocument(doc.id, doc.title);
-                            }}
-                          >
-                            <Edit2 size={11} />
-                            Rename
-                          </button>
-                          {isOwner && (
-                            <button
-                              type="button"
-                              className="w-full text-left text-xs px-3 py-1.5 hover:bg-danger/10 text-danger flex items-center gap-1.5 border-t border-border-def/50"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveKebabDocId(null);
-                                handleDeleteDocument(doc.id);
-                              }}
-                            >
-                              <Trash2 size={11} />
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    {/* Document actions (Open / Rename / Copy link / Delete) */}
+                    <DocMenu
+                      docId={doc.id}
+                      isOwner={isOwner}
+                      onOpen={() => navigate(`/docs/${doc.id}`)}
+                      onRename={() => handleRenameDocument(doc.id, doc.title)}
+                      onDelete={() => handleDeleteDocument(doc.id)}
+                    />
                   </div>
                 </div>
               );

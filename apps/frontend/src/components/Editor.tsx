@@ -12,14 +12,21 @@ interface EditorProps {
  */
 export function Editor({ onMount }: EditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const quillInstanceRef = useRef<Quill | null>(null);
+
+  // Always call the latest onMount without making it an effect dependency.
+  // `onMount` changes identity on parent re-renders (every confirmed op bumps the
+  // revision state); if it were a dependency, Quill would be torn down and
+  // rebuilt after each keystroke, wiping the text and dropping focus.
+  const onMountRef = useRef(onMount);
+  onMountRef.current = onMount;
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     // Create a sub-div container to avoid Quill mounting directly to ref and losing styling
     const editorElement = document.createElement('div');
-    containerRef.current.appendChild(editorElement);
+    container.appendChild(editorElement);
 
     // Initialize Quill instance with specified toolbar configurations
     const quill = new Quill(editorElement, {
@@ -35,17 +42,13 @@ export function Editor({ onMount }: EditorProps) {
       placeholder: 'Start writing...',
     });
 
-    quillInstanceRef.current = quill;
-    onMount(quill);
+    onMountRef.current(quill);
 
-    // Clean up editor content and instance references on unmount
+    // Clean up editor content (including the toolbar Quill inserts as a sibling)
     return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-      }
-      quillInstanceRef.current = null;
+      container.innerHTML = '';
     };
-  }, [onMount]);
+  }, []);
 
   return (
     <div 

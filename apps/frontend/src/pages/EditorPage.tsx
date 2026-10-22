@@ -4,6 +4,7 @@ import { useUser } from '@clerk/clerk-react';
 import { useDocument } from '../hooks/useDocument';
 import { Editor } from '../components/Editor';
 import { CursorOverlay } from '../components/CursorOverlay';
+import { DocMenu } from '../components/DocMenu';
 import { useApi } from '../lib/api';
 import type { DocumentRecord } from '../lib/api';
 import { 
@@ -29,7 +30,10 @@ export function EditorPage() {
     activeUsers,
     initializeEditor,
     updateTitle,
-    quillRef
+    quill,
+    status,
+    statusMessage,
+    saving
   } = useDocument(id);
 
   // States
@@ -55,6 +59,14 @@ export function EditorPage() {
       .then(setSidebarDocs)
       .catch(console.error);
   }, [id]);
+
+  // Keep the sidebar entry's title in sync when the open document is renamed from the topbar
+  useEffect(() => {
+    if (!document) return;
+    setSidebarDocs(prev =>
+      prev.map(d => (d.id === document.id && d.title !== document.title ? { ...d, title: document.title } : d))
+    );
+  }, [document?.id, document?.title]);
 
   // Close share popover on click outside
   useEffect(() => {
@@ -101,9 +113,59 @@ export function EditorPage() {
     setTimeout(() => setCopyStatus('idle'), 2000);
   };
 
+  // Sidebar document actions
+  const handleSidebarRename = async (doc: DocumentRecord) => {
+    const next = window.prompt('Rename document:', doc.title);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed) {
+      window.alert('Title cannot be empty');
+      return;
+    }
+    if (trimmed === doc.title) return;
+
+    try {
+      if (doc.id === id) {
+        // Current document: go through the hook so the topbar/title state stays in sync
+        await updateTitle(trimmed);
+      } else {
+        await request(`/docs/${doc.id}/title`, {
+          method: 'PATCH',
+          body: JSON.stringify({ title: trimmed }),
+        });
+      }
+      setSidebarDocs(prev => prev.map(d => (d.id === doc.id ? { ...d, title: trimmed } : d)));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to rename document');
+    }
+  };
+
+  const handleSidebarDelete = async (doc: DocumentRecord) => {
+    if (!window.confirm(`Delete "${doc.title}"? This cannot be undone.`)) return;
+    try {
+      await request(`/docs/${doc.id}`, { method: 'DELETE' });
+      const remaining = sidebarDocs.filter(d => d.id !== doc.id);
+      setSidebarDocs(remaining);
+      if (doc.id === id) {
+        navigate(remaining.length > 0 ? `/docs/${remaining[0].id}` : '/dashboard');
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete document');
+    }
+  };
+
   const getInitials = (name: string) => {
     return name.substring(0, 1).toUpperCase();
   };
+
+  // Topbar sync indicator derived from socket connection + in-flight ops
+  const syncIndicator = (() => {
+    if (status === 'error') return { dot: 'bg-[#F87171]', label: 'Sync error', pulse: false };
+    if (status === 'offline') return { dot: 'bg-[#FBBF24]', label: 'Reconnecting…', pulse: true };
+    if (status === 'connecting') return { dot: 'bg-[#FBBF24]', label: 'Connecting…', pulse: true };
+    if (saving) return { dot: 'bg-[#FBBF24]', label: 'Saving…', pulse: true };
+    return { dot: 'bg-success', label: 'Saved', pulse: false };
+  })();
 
   if (loading) {
     return (
@@ -177,10 +239,16 @@ export function EditorPage() {
 
         {/* Topbar Right */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Save indicator */}
-          <div className="bg-bg-card border border-border-def rounded-full px-2.5 py-0.5 flex items-center gap-1.5 text-[10px]">
-            <span className="w-1.5 h-1.5 rounded-full bg-success"></span>
-            <span className="text-text-dim font-normal">Saved</span>
+          {/* Save / connection indicator */}
+          <div
+            className="bg-bg-card border border-border-def rounded-full px-2.5 py-0.5 flex items-center gap-1.5 text-[10px]"
+            title={statusMessage ?? undefined}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${syncIndicator.dot} ${syncIndicator.pulse ? 'animate-pulse' : ''}`}></span>
+            <span className="text-text-dim font-normal">
+              {syncIndicator.label}
+              {statusMessage && status !== 'connected' ? ` — ${statusMessage}` : ''}
+            </span>
           </div>
 
           {/* Avatars Stack */}
@@ -267,20 +335,39 @@ export function EditorPage() {
             </span>
             
             <nav className="flex flex-col gap-0.5">
-              {sidebarDocs.map((doc) => (
-                <Link
-                  key={doc.id}
-                  to={`/docs/${doc.id}`}
-                  className={`text-[12px] px-2.5 py-1.5 rounded-md border-l-2 flex items-center gap-2 transition-all duration-120 hover:bg-bg-elevated hover:text-[#EDEDEE] ${
-                    doc.id === id
-                      ? 'bg-[#6E56CF1A] border-accent text-text-pri font-medium'
-                      : 'border-transparent text-text-sec'
-                  }`}
-                >
-                  <FileText size={13} className="shrink-0" />
-                  <span className="truncate">{doc.title}</span>
-                </Link>
-              ))}
+              {sidebarDocs.map((doc) => {
+                const isActive = doc.id === id;
+                return (
+                  <div
+                    key={doc.id}
+                    className={`group relative flex items-center rounded-md border-l-2 transition-all duration-120 hover:bg-bg-elevated ${
+                      isActive ? 'bg-[#6E56CF1A] border-accent' : 'border-transparent'
+                    }`}
+                  >
+                    <Link
+                      to={`/docs/${doc.id}`}
+                      className={`flex-1 min-w-0 text-[12px] px-2.5 py-1.5 flex items-center gap-2 transition-colors duration-120 ${
+                        isActive
+                          ? 'text-text-pri font-medium'
+                          : 'text-text-sec hover:text-[#EDEDEE]'
+                      }`}
+                    >
+                      <FileText size={13} className="shrink-0" />
+                      <span className="truncate">{doc.title}</span>
+                    </Link>
+
+                    {/* Per-document actions, revealed on hover (always visible while open) */}
+                    <DocMenu
+                      docId={doc.id}
+                      isOwner={doc.owner_id === user?.id}
+                      onOpen={() => navigate(`/docs/${doc.id}`)}
+                      onRename={() => handleSidebarRename(doc)}
+                      onDelete={() => handleSidebarDelete(doc)}
+                      buttonClassName="mr-1 w-6! h-6! opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    />
+                  </div>
+                );
+              })}
             </nav>
           </div>
 
@@ -334,7 +421,7 @@ export function EditorPage() {
             {/* Quill Text Editor Canvas Wrapper */}
             <div className="relative">
               <Editor onMount={initializeEditor} />
-              <CursorOverlay quill={quillRef.current} activeUsers={activeUsers} />
+              <CursorOverlay quill={quill} activeUsers={activeUsers} />
             </div>
           </div>
         </main>
