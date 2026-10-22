@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useUser, UserButton } from '@clerk/clerk-react';
 import { useApi } from '../lib/api';
 import type { DocumentRecord } from '../lib/api';
@@ -106,14 +106,14 @@ export function DashboardPage() {
     <div className="min-h-screen bg-bg-root text-text-pri flex flex-col font-sans relative">
       {/* Topbar */}
       <header className="h-[46px] bg-bg-panel border-b border-border-def flex items-center justify-between px-4 z-20 shrink-0">
-        <div className="flex items-center gap-2">
+        <Link to="/dashboard" className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-accent flex items-center justify-center text-white font-bold text-sm">
             C
           </div>
           <span className="text-text-pri font-semibold text-xs tracking-[-0.3px]">
             collab-Editor
           </span>
-        </div>
+        </Link>
 
         <div className="flex items-center gap-3">
           <button className="w-7 h-7 bg-bg-input border border-border-card hover:border-accent-subtle hover:bg-bg-elevated text-text-sec hover:text-text-pri rounded-md flex items-center justify-center transition-all duration-160">
@@ -121,7 +121,7 @@ export function DashboardPage() {
           </button>
           
           <div className="flex items-center gap-2 bg-bg-input border border-border-card rounded-[8px] p-0.5 pr-2 hover:border-accent-subtle hover:bg-bg-elevated transition-all duration-160 cursor-pointer">
-            <UserButton afterSignOutUrl="/login" />
+            <UserButton afterSignOutUrl="/" />
             <span className="text-text-pri text-xs font-normal max-w-[80px] truncate select-none">
               {user?.firstName || 'Writer'}
             </span>

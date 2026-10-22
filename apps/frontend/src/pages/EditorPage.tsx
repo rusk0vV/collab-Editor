@@ -212,14 +212,14 @@ export function EditorPage() {
           </button>
           
           {/* Logo Mark */}
-          <div className="hidden sm:flex items-center gap-2">
+          <Link to="/dashboard" className="hidden sm:flex items-center gap-2">
             <div className="w-5.5 h-5.5 rounded bg-accent flex items-center justify-center text-white font-bold text-xs">
               C
             </div>
             <span className="text-text-pri font-semibold text-[12px] tracking-[-0.2px]">
               collab-Editor
             </span>
-          </div>
+          </Link>
 
           <div className="hidden sm:block w-[1px] h-3.5 bg-border-def mx-3" />
 

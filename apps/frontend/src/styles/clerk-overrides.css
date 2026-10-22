@@ -1,0 +1,75 @@
+/* Overrides for Clerk's sign-in / sign-up cards (imported by AuthPage).
+   Class names come from Clerk's documented `cl-*` element names. */
+
+/* ── 1. Inputs stay dark on hover / focus / browser autofill preview ──
+   Chrome paints autofilled (and previewed-on-hover) fields #E8F0FE and hides the text.
+   An opaque inset shadow covers that background; the text-fill color keeps text readable. */
+.cl-formFieldInput {
+  color-scheme: dark;
+}
+.cl-formFieldInput:hover,
+.cl-formFieldInput:focus {
+  background-color: #0F0F1A !important;
+}
+.cl-formFieldInput:-webkit-autofill,
+.cl-formFieldInput:-webkit-autofill:hover,
+.cl-formFieldInput:-webkit-autofill:focus,
+.cl-formFieldInput:-webkit-autofill:active,
+.cl-formFieldInput:autofill {
+  -webkit-box-shadow: 0 0 0 1000px #0F0F1A inset, 0 0 0 1px #1E1E30 !important;
+  box-shadow: 0 0 0 1000px #0F0F1A inset, 0 0 0 1px #1E1E30 !important;
+  -webkit-text-fill-color: #EDEDEE !important;
+  caret-color: #EDEDEE;
+  /* delays Chrome's own autofill background so it effectively never shows */
+  transition: background-color 600000s 0s, color 600000s 0s;
+}
+
+/* ── 2. "Don't have an account?" above Continue, "Secured by Clerk" below it ──
+   Clerk renders the footer as a sibling of the card, below everything. To reorder across
+   those boundaries, the wrapper elements are flattened (display: contents) so their children
+   become flex items of .cl-cardBox, then positioned with `order`. Only the first step of each
+   flow (…-start) is touched; other steps keep Clerk's default layout. */
+.cl-cardBox.cl-signIn-start,
+.cl-cardBox.cl-signUp-start {
+  display: flex;
+  flex-direction: column;
+}
+.cl-signIn-start > .cl-card,
+.cl-signUp-start > .cl-card,
+.cl-signIn-start > .cl-card > .cl-main,
+.cl-signUp-start > .cl-card > .cl-main,
+.cl-signIn-start .cl-main > .cl-form,
+.cl-signUp-start .cl-main > .cl-form,
+.cl-signIn-start > .cl-footer,
+.cl-signUp-start > .cl-footer {
+  display: contents;
+}
+
+/* spacing that the flattened wrappers used to provide */
+.cl-signIn-start .cl-socialButtonsRoot,
+.cl-signUp-start .cl-socialButtonsRoot {
+  margin-bottom: 24px;
+}
+.cl-signIn-start .cl-dividerRow,
+.cl-signUp-start .cl-dividerRow {
+  margin-bottom: 24px;
+}
+
+/* order: fields (0) → footer action (1) → Continue (2) → Secured by Clerk (3) */
+.cl-signIn-start .cl-footerAction,
+.cl-signUp-start .cl-footerAction {
+  order: 1;
+  justify-content: center;
+  margin-top: 20px;
+  padding: 0;
+}
+.cl-signIn-start .cl-main > .cl-form > div:last-child,
+.cl-signUp-start .cl-main > .cl-form > div:last-child {
+  order: 2;
+  margin-top: 16px;
+}
+.cl-signIn-start > .cl-footer > div:not(.cl-footerAction),
+.cl-signUp-start > .cl-footer > div:not(.cl-footerAction) {
+  order: 3;
+  margin-top: 28px;
+}

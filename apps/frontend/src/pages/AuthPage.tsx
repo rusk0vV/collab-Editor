@@ -1,23 +1,43 @@
 import React, { useEffect, useRef } from 'react';
 import { Users, Zap, History } from 'lucide-react';
 import { SignIn, SignUp } from '@clerk/clerk-react';
+import '../styles/clerk-overrides.css';
 
-const appearanceSettings = {
+// One shared appearance object so /login and /register always look identical.
+const clerkAppearance = {
   variables: {
     colorPrimary: '#6E56CF',
     colorBackground: '#0B0B14',
     colorInputBackground: '#0F0F1A',
     colorInputText: '#EDEDEE',
     colorText: '#EDEDEE',
-    colorTextSecondary: '#8888AA',
+    colorTextSecondary: '#9494AD',
+    colorNeutral: '#EDEDEE',
     borderRadius: '8px',
     fontFamily: 'Inter, system-ui, sans-serif',
   },
   elements: {
+    // cardBox owns Clerk's default shadow + overflow:hidden (clips the "Last used" badge)
     rootBox: { width: '100%', maxWidth: '100%' },
+    cardBox: { width: '100%', maxWidth: '100%', boxShadow: 'none', border: 'none', background: 'transparent', overflow: 'visible' },
     card: { border: 'none', boxShadow: 'none', background: 'transparent', width: '100%', maxWidth: '100%', padding: '0px' },
     headerTitle: { display: 'none' },
     headerSubtitle: { display: 'none' },
+    socialButtonsBlockButton: { backgroundColor: '#0F0F1A', border: '1px solid #1E1E30', color: '#EDEDEE' },
+    socialButtonsBlockButtonText: { color: '#EDEDEE' },
+    formFieldInput: {
+      backgroundColor: '#0F0F1A',
+      border: '1px solid #1E1E30',
+      color: '#EDEDEE',
+      // Chrome autofill paints its own light background; paint over it
+      '&:-webkit-autofill': {
+        WebkitBoxShadow: '0 0 0 1000px #0F0F1A inset',
+        WebkitTextFillColor: '#EDEDEE',
+        caretColor: '#EDEDEE',
+      },
+    },
+    // GitHub's logo is black, invisible on the dark button
+    providerIcon__github: { filter: 'invert(1)' },
     formButtonPrimary: { backgroundColor: '#6E56CF', '&:hover': { backgroundColor: '#7C65D8' } },
     footerActionLink: { color: '#6E56CF', '&:hover': { color: '#7C65D8' } },
     identityPreviewEditButtonIcon: { color: '#6E56CF' }
@@ -187,8 +207,11 @@ function AuthLayout({ children, tagline }: { children: React.ReactNode; tagline:
       </div>
 
       {/* RIGHT PANEL — Clerk form */}
-      <div className="w-full md:w-[42%] md:min-w-[380px] md:max-w-[480px] bg-bg-panel flex flex-col justify-center items-center px-6 md:px-10 border-l border-border-def relative z-10 shrink-0">
-        <div className="w-full max-w-[400px]">
+      <div
+        className="w-full md:w-[42%] md:min-w-[380px] md:max-w-[480px] bg-bg-panel border-l border-border-def relative z-10 shrink-0"
+        style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', overflowY: 'auto', padding: '32px 28px', boxSizing: 'border-box' }}
+      >
+        <div style={{ width: '100%', maxWidth: 400, boxSizing: 'border-box' }}>
           {/* Logo & Tagline Header */}
           <div className="flex flex-col items-center mb-6">
             <div className="flex items-center gap-2">
@@ -220,7 +243,7 @@ export function LoginPage() {
         path="/login"
         signUpUrl="/register"
         afterSignInUrl="/dashboard"
-        appearance={appearanceSettings}
+        appearance={clerkAppearance}
       />
     </AuthLayout>
   );
@@ -234,7 +257,7 @@ export function RegisterPage() {
         path="/register"
         signInUrl="/login"
         afterSignUpUrl="/dashboard"
-        appearance={appearanceSettings}
+        appearance={clerkAppearance}
       />
     </AuthLayout>
   );

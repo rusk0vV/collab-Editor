@@ -1,0 +1,30 @@
+html { scroll-behavior: smooth; }
+
+.lp-card { transition: transform .2s, border-color .2s, background .2s; }
+.lp-card:hover { transform: translateY(-3px); border-color: #6E56CF99; background: #10101E; }
+
+.lp-btn { transition: background .18s, transform .12s, border-color .18s; cursor: pointer; }
+.lp-btn:hover { border-color: #6E56CF; }
+.lp-btn:active { transform: scale(.97); }
+
+.lp-nl { transition: color .15s; }
+.lp-nl:hover { color: #fff; }
+
+.lp-caret { display: inline-block; width: 2px; height: 1em; vertical-align: -2px; margin-left: 1px; animation: lp-blink 1s infinite; }
+@keyframes lp-blink { 50% { opacity: 0; } }
+
+.lp-marquee { display: flex; gap: 56px; width: max-content; animation: lp-marquee 30s linear infinite; }
+@keyframes lp-marquee { to { transform: translateX(-50%); } }
+
+/* Additions for small screens (the prototype was desktop-only) */
+@media (max-width: 860px) {
+  .lp-nav { padding: 16px 20px !important; }
+  .lp-nav-links { display: none !important; }
+  .lp-grid-2 { grid-template-columns: 1fr !important; }
+  .lp-doc { padding: 28px 22px 36px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-marquee, .lp-caret { animation: none; }
+  html { scroll-behavior: auto; }
+}

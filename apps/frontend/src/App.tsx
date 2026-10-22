@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+import LandingPage from './pages/LandingPage';
 import { LoginPage, RegisterPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { EditorPage } from './pages/EditorPage';
@@ -9,6 +10,8 @@ import { EditorPage } from './pages/EditorPage';
  * RootLayout containing the cursor-tracking orbs that float in the background of all pages.
  */
 function RootLayout({ children }: { children: React.ReactNode }) {
+  // The landing page draws its own glow, so hide the global orbs on "/" only.
+  const showOrbs = useLocation().pathname !== '/';
   const orb1Ref = useRef<HTMLDivElement>(null);
   const orb2Ref = useRef<HTMLDivElement>(null);
   const mouse = useRef({ x: 200, y: 200 });
@@ -51,7 +54,7 @@ function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen w-full bg-bg-root overflow-hidden">
       {/* Orb 1 — large purple */}
-      <div
+      {showOrbs && <div
         ref={orb1Ref}
         className="pointer-events-none absolute z-0 rounded-full"
         style={{
@@ -62,9 +65,9 @@ function RootLayout({ children }: { children: React.ReactNode }) {
           background: 'radial-gradient(circle, rgba(110,86,207,0.18) 0%, transparent 70%)',
           transition: 'none',
         }}
-      />
+      />}
       {/* Orb 2 — smaller blue */}
-      <div
+      {showOrbs && <div
         ref={orb2Ref}
         className="pointer-events-none absolute z-0 rounded-full"
         style={{
@@ -75,7 +78,7 @@ function RootLayout({ children }: { children: React.ReactNode }) {
           background: 'radial-gradient(circle, rgba(96,165,250,0.10) 0%, transparent 70%)',
           transition: 'none',
         }}
-      />
+      />}
       {/* Main app content rendered above the background orbs */}
       <div className="relative z-10 w-full min-h-screen">
         {children}
@@ -110,7 +113,7 @@ function App() {
             }
           />
           {/* Fallbacks */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<LandingPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </RootLayout>
