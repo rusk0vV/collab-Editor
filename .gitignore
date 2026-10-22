@@ -7,3 +7,7 @@ dist/
 .DS_Store
 *.log
 reference_md_Files/
+
+# Generated Documentation & Generator Scripts
+*.pdf
+scripts/
