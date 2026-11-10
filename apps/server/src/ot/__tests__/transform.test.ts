@@ -25,7 +25,7 @@ describe('Operational Transformation Engine', () => {
       const clientOp: QuillDelta = { ops: [{ insert: 'B' }] };
 
       // clientOp loses priority (gets placed after serverOp)
-      const transformed = transform(serverOp, clientOp, true);
+      const transformed = transform(clientOp, serverOp, true);
       expect(transformed.ops).toEqual([{ retain: 1 }, { insert: 'B' }]);
     });
 
@@ -36,7 +36,7 @@ describe('Operational Transformation Engine', () => {
       const clientOp: QuillDelta = { ops: [{ insert: 'B' }] };
 
       // clientOp gets priority (gets placed before serverOp)
-      const transformed = transform(serverOp, clientOp, false);
+      const transformed = transform(clientOp, serverOp, false);
       expect(transformed.ops).toEqual([{ insert: 'B' }]);
     });
 
@@ -49,7 +49,7 @@ describe('Operational Transformation Engine', () => {
 
       // Since serverOp deleted 5 characters, clientOp's retain 5 is reduced/removed.
       // The result should just insert ' World' at position 0.
-      const transformed = transform(serverOp, clientOp, false);
+      const transformed = transform(clientOp, serverOp, false);
       expect(transformed.ops).toEqual([{ insert: ' World' }]);
     });
 
@@ -65,11 +65,11 @@ describe('Operational Transformation Engine', () => {
       const clientOp: QuillDelta = { ops: [{ insert: 'B' }] };
 
       // User B (clientOp) userId is greater than User A, so priority = true (loses priority) against User A
-      let transformed = transform(serverOp1, clientOp, true);
+      let transformed = transform(clientOp, serverOp1, true);
       expect(transformed.ops).toEqual([{ retain: 1 }, { insert: 'B' }]); // transformed to insert after A
 
       // User B (transformed clientOp) userId is smaller than User C, so priority = false (gets priority) against User C
-      transformed = transform(serverOp2, transformed, false);
+      transformed = transform(transformed, serverOp2, false);
       expect(transformed.ops).toEqual([{ retain: 1 }, { insert: 'B' }]); // retains A, inserts B before C
     });
   });

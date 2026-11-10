@@ -13,11 +13,17 @@ export interface QuillDelta {
  * Therefore: new Delta(applied.ops).transform(new Delta(incoming.ops), priority)
  * 
  * Priority=true means the applied op keeps its position and incoming shifts right.
+ * When priority is omitted, a deterministic tie-breaker (JSON comparison) is used
+ * to guarantee mathematical convergence:
+ *   apply(apply(doc, opA), transform(opB, opA)) === apply(apply(doc, opB), transform(opA, opB))
  */
-export function transform(incoming: QuillDelta, applied: QuillDelta, priority: boolean = true): QuillDelta {
+export function transform(incoming: QuillDelta, applied: QuillDelta, priority?: boolean): QuillDelta {
+  const p = priority !== undefined
+    ? priority
+    : JSON.stringify(applied.ops) <= JSON.stringify(incoming.ops);
   const appliedDelta = new Delta(applied.ops);
   const incomingDelta = new Delta(incoming.ops);
-  const transformed = appliedDelta.transform(incomingDelta, priority);
+  const transformed = appliedDelta.transform(incomingDelta, p);
   return { ops: transformed.ops };
 }
 
