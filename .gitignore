@@ -10,4 +10,4 @@ reference_md_Files/
 
 # Generated Documentation & Generator Scripts
 *.pdf
-scripts/
+/scripts/
