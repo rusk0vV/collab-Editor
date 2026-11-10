@@ -6,6 +6,7 @@ import cors from 'cors';
 import { docsRouter } from './routes/docs';
 import { registerSocketHandlers } from './ws/opHandler';
 import { runMigrations } from './db/client';
+import './redis/client';
 import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node';
 
 const app = express();
