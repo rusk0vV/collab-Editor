@@ -10,6 +10,7 @@ import {
   addCollaborator
 } from '../db/queries/docs';
 import { upsertUser } from '../db/queries/users';
+import { getDocState, setDocState, invalidateDocCache } from '../redis/docCache';
 
 export const docsRouter = Router();
 
@@ -71,26 +72,45 @@ docsRouter.post('/', async (req: Request, res: Response) => {
 
 /**
  * GET /docs/:id
- * Loads a document's details. Registers the user as an edit collaborator
- * if they open a shared document they don't yet have explicit access to.
+ * Loads a document's details. Checks Redis cache first.
+ * Registers the user as an edit collaborator if they open a shared document
+ * they don't yet have explicit access to.
  */
 docsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).auth.userId;
+    const userId = (req as any).auth?.userId;
     const docId = req.params.id;
 
+    // 1. Try Redis cache first
+    const cached = await getDocState(docId);
+    if (cached) {
+      if (userId) {
+        const access = await checkDocumentAccess(docId, userId);
+        if (!access) {
+          await addCollaborator(docId, userId, 'edit');
+        }
+      }
+      return res.status(200).json({ id: docId, ...cached, fromCache: true });
+    }
+
+    // 2. Cache miss — load from Postgres
     const doc = await findDocumentById(docId);
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    const access = await checkDocumentAccess(docId, userId);
-    if (!access) {
-      // Automatic collaborator inclusion (share-by-link)
-      await addCollaborator(docId, userId, 'edit');
+    if (userId) {
+      const access = await checkDocumentAccess(docId, userId);
+      if (!access) {
+        // Automatic collaborator inclusion (share-by-link)
+        await addCollaborator(docId, userId, 'edit');
+      }
     }
 
-    return res.status(200).json(doc);
+    // 3. Populate cache for next request
+    await setDocState(docId, doc.content, doc.revision);
+
+    return res.status(200).json({ ...doc, fromCache: false });
   } catch (error) {
     console.error('Error loading document:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -147,6 +167,7 @@ docsRouter.delete('/:id', async (req: Request, res: Response) => {
     }
 
     await deleteDocument(docId);
+    await invalidateDocCache(docId);
     return res.status(200).json({ message: 'Document deleted successfully' });
   } catch (error) {
     console.error('Error deleting document:', error);
