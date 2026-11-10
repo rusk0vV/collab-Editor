@@ -5,18 +5,19 @@ export interface QuillDelta {
 }
 
 /**
- * Transforms clientOp against serverOp.
- * Returns clientOp adjusted for the fact that serverOp has already been applied.
+ * Transform incoming against already-applied op.
+ * Returns a new version of incoming adjusted for the fact that applied
+ * has already been applied to the document.
  * 
- * @param serverOp - The operation already applied on the server.
- * @param clientOp - The stale operation from the client.
- * @param priority - If true, the clientOp loses priority (inserts after serverOp).
- *                   If false, the clientOp gets priority (inserts before serverOp).
+ * In quill-delta, a.transform(b, priority) transforms b against a.
+ * Therefore: new Delta(applied.ops).transform(new Delta(incoming.ops), priority)
+ * 
+ * Priority=true means the applied op keeps its position and incoming shifts right.
  */
-export function transform(serverOp: QuillDelta, clientOp: QuillDelta, priority: boolean): QuillDelta {
-  const serverDelta = new Delta(serverOp.ops);
-  const clientDelta = new Delta(clientOp.ops);
-  const transformed = serverDelta.transform(clientDelta, priority);
+export function transform(incoming: QuillDelta, applied: QuillDelta, priority: boolean = true): QuillDelta {
+  const appliedDelta = new Delta(applied.ops);
+  const incomingDelta = new Delta(incoming.ops);
+  const transformed = appliedDelta.transform(incomingDelta, priority);
   return { ops: transformed.ops };
 }
 
@@ -31,4 +32,33 @@ export function apply(doc: QuillDelta, op: QuillDelta): QuillDelta {
   const opDelta = new Delta(op.ops);
   const result = docDelta.compose(opDelta);
   return { ops: result.ops };
+}
+
+/**
+ * Transform op forward from baseRevision to targetRevision.
+ * Used when a client sends an op based on a stale revision.
+ * 
+ * @param op - The stale incoming client operation.
+ * @param baseRevision - Revision the client's op was based on.
+ * @param targetRevision - Current server revision.
+ * @param fetchOps - Function to fetch historical ops from op_log.
+ */
+export async function transformForward(
+  op: QuillDelta,
+  baseRevision: number,
+  targetRevision: number,
+  fetchOps: (from: number, to: number) => Promise<QuillDelta[]>
+): Promise<QuillDelta> {
+  if (baseRevision === targetRevision) return op;
+
+  // Fetch the ops that happened between client's revision and current revision
+  const missedOps = await fetchOps(baseRevision, targetRevision);
+
+  // Transform our incoming op against each missed op in sequence
+  let result = op;
+  for (const missedOp of missedOps) {
+    result = transform(result, missedOp, true);
+  }
+
+  return result;
 }

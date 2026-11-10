@@ -1,4 +1,5 @@
 import { pool } from '../client';
+import type { QuillDelta } from '../../ot/transform';
 
 export interface DocumentRecord {
   id: string;
@@ -135,3 +136,21 @@ export async function addCollaborator(docId: string, userId: string, permission:
     [docId, userId, permission]
   );
 }
+
+/**
+ * Fetches ops from op_log between fromRevision (exclusive) and toRevision (inclusive).
+ */
+export async function getOpsBetweenRevisions(
+  docId: string,
+  fromRevision: number,
+  toRevision: number
+): Promise<QuillDelta[]> {
+  const result = await pool.query<{ op: any }>(
+    `SELECT op FROM op_log
+     WHERE doc_id = $1 AND revision > $2 AND revision <= $3
+     ORDER BY revision ASC`,
+    [docId, fromRevision, toRevision]
+  );
+  return result.rows.map(row => (typeof row.op === 'string' ? JSON.parse(row.op) : row.op) as QuillDelta);
+}
+

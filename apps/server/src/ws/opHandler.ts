@@ -1,9 +1,11 @@
 import { Server, Socket } from 'socket.io';
 import { clerkClient } from '@clerk/clerk-sdk-node';
-import { checkDocumentAccess, findDocumentById, updateDocumentContent } from '../db/queries/docs';
-import { apply, transform, QuillDelta } from '../ot/transform';
+import { pool } from '../db/client';
+import { checkDocumentAccess, findDocumentById, getOpsBetweenRevisions } from '../db/queries/docs';
+import { apply, transformForward, QuillDelta } from '../ot/transform';
+import { getDocState, setDocState } from '../redis/docCache';
+import { setPresence, getAllPresence } from '../redis/presence';
 import {
-  docPresence,
   CURSOR_COLORS,
   handleCursorMove,
   handleLeaveDoc,
@@ -20,24 +22,9 @@ async function verifyClerkToken(token: string): Promise<string | null> {
   }
 }
 
-
-export interface HistoryEntry {
-  revision: number;
-  op: QuillDelta;
-  userId: string;
-}
-
-export interface DocState {
-  revision: number;
-  content: QuillDelta;
-  history: HistoryEntry[];
-}
-
-// In-memory document state map
-export const docState = new Map<string, DocState>();
-
 /**
  * Registers all WebSocket events and handlers for real-time document synchronization.
+ * Document state and collaborator presence are managed through Redis.
  */
 export function registerSocketHandlers(io: Server): void {
   io.on('connection', (socket: Socket) => {
@@ -52,7 +39,7 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-                // Verify Clerk token
+        // Verify Clerk token
         const userId = await verifyClerkToken(token);
         if (!userId) {
           socket.emit('error', { code: 'UNAUTHORIZED', message: 'Invalid or expired session' });
@@ -91,8 +78,8 @@ export function registerSocketHandlers(io: Server): void {
         // Join the Socket.IO room for this document
         await socket.join(docId);
 
-        // Load document state from database if not cached in memory
-        let state = docState.get(docId);
+        // Load document state from Redis, falling back to PostgreSQL on cache miss
+        let state = await getDocState(docId);
         if (!state) {
           const doc = await findDocumentById(docId);
           if (!doc) {
@@ -102,37 +89,26 @@ export function registerSocketHandlers(io: Server): void {
           state = {
             revision: doc.revision,
             content: doc.content as QuillDelta,
-            history: []
           };
-          docState.set(docId, state);
+          await setDocState(docId, state.content, state.revision);
         }
 
-        // Add to presence store
-        let docMap = docPresence.get(docId);
-        if (!docMap) {
-          docMap = new Map();
-          docPresence.set(docId, docMap);
-        }
-        docMap.set(userId, {
+        // Update presence in Redis
+        await setPresence(docId, userId, {
           name,
           color: socket.data.color,
           position: null
         });
 
-        // Emit current state back to the joining user
+        // Emit current canonical state back to the joining user
         socket.emit('joined-doc', {
           docId,
           content: state.content,
           revision: state.revision
         });
 
-        // Emit current active presence list of the document to the joining user
-        const usersList = Array.from(docMap.entries()).map(([uid, presence]) => ({
-          userId: uid,
-          name: presence.name,
-          color: presence.color,
-          position: presence.position
-        }));
+        // Emit current active presence list from Redis to joining user
+        const usersList = await getAllPresence(docId);
         socket.emit('presence-list', { users: usersList });
 
         // Notify other clients in the document room about this user
@@ -168,14 +144,19 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-        // Retrieve document state from cache
-        const state = docState.get(docId);
-        if (!state) {
-          socket.emit('error', { code: 'NOT_FOUND', message: 'Document state not found' });
-          return;
+        // Retrieve current document state from Redis (falling back to Postgres if evicted)
+        let current = await getDocState(docId);
+        if (!current) {
+          const doc = await findDocumentById(docId);
+          if (!doc) {
+            socket.emit('error', { code: 'DOC_NOT_LOADED', message: 'Document state not found' });
+            return;
+          }
+          current = { content: doc.content as QuillDelta, revision: doc.revision };
+          await setDocState(docId, current.content, current.revision);
         }
 
-        const serverRev = state.revision;
+        const serverRev = current.revision;
         const clientRev = revision;
 
         if (clientRev > serverRev) {
@@ -183,52 +164,49 @@ export function registerSocketHandlers(io: Server): void {
           return;
         }
 
-        let transformedOp = op;
+        let resolvedOp = op;
 
-        // If client is stale, perform sequential transformation against historical edits
+        // If client is stale, perform sequential transformation against historical edits fetched from op_log
         if (clientRev < serverRev) {
-          for (let i = clientRev; i < serverRev; i++) {
-            const historical = state.history.find(h => h.revision === i);
-            if (historical) {
-              // Tie-breaker priority: lexicographically greater userId loses priority (inserts after)
-              const priority = userId > historical.userId;
-              transformedOp = transform(historical.op, transformedOp, priority);
-            }
-          }
+          resolvedOp = await transformForward(
+            op,
+            clientRev,
+            serverRev,
+            (from, to) => getOpsBetweenRevisions(docId, from, to)
+          );
         }
 
         // Apply operation on the server state
-        state.content = apply(state.content, transformedOp);
-        
-        // Log history entry
-        const finalRevision = state.revision;
-        state.revision++;
-        state.history.push({
-          revision: finalRevision,
-          op: transformedOp,
-          userId
-        });
+        const newContent = apply(current.content, resolvedOp);
+        const newRevision = serverRev + 1;
 
-        // Bounded memory buffer of size 1000
-        if (state.history.length > 1000) {
-          state.history.shift();
-        }
+        // Write new state to Redis immediately
+        await setDocState(docId, newContent, newRevision);
 
-        // Persist to Postgres database synchronously
-        await updateDocumentContent(docId, state.content, state.revision);
+        // Persist to Postgres database
+        await pool.query(
+          'UPDATE documents SET content = $1, revision = $2, updated_at = now() WHERE id = $3',
+          [JSON.stringify(newContent), newRevision, docId]
+        );
+
+        // Record entry in op_log
+        await pool.query(
+          'INSERT INTO op_log (doc_id, user_id, revision, op) VALUES ($1, $2, $3, $4)',
+          [docId, userId, newRevision, JSON.stringify(resolvedOp)]
+        );
 
         // Acknowledge operation to the sending client
         socket.emit('op-confirmed', {
           docId,
-          op: transformedOp,
-          revision: state.revision
+          op: resolvedOp,
+          revision: newRevision
         });
 
         // Broadcast the operation to other active clients
         socket.to(docId).emit('op-broadcast', {
           docId,
-          op: transformedOp,
-          revision: state.revision,
+          op: resolvedOp,
+          revision: newRevision,
           userId
         });
       } catch (error) {
@@ -238,16 +216,16 @@ export function registerSocketHandlers(io: Server): void {
     });
 
     // 3. Cursor Move Presence Event
-    socket.on('cursor-move', (data: { docId: string; position: number | null; userId: string }) => {
+    socket.on('cursor-move', async (data: { docId: string; position: number | null; userId: string }) => {
       const { docId, position, userId } = data;
       if (socket.data.userId !== userId) {
         return;
       }
-      handleCursorMove(socket, docId, position, userId);
+      await handleCursorMove(socket, docId, position, userId);
     });
 
     // 4. Leave Document Event
-    socket.on('leave-doc', (data: { docId: string }) => {
+    socket.on('leave-doc', async (data: { docId: string }) => {
       const { docId } = data;
       const userId = socket.data.userId;
       if (!userId) return;
@@ -257,14 +235,14 @@ export function registerSocketHandlers(io: Server): void {
         joinedDocs.delete(docId);
       }
 
-      handleLeaveDoc(socket, docId, userId);
+      await handleLeaveDoc(socket, docId, userId);
       socket.leave(docId);
       console.log(`User ${userId} left document ${docId}`);
     });
 
     // 5. Socket Disconnected Event
-    socket.on('disconnect', () => {
-      handleDisconnect(socket);
+    socket.on('disconnect', async () => {
+      await handleDisconnect(socket);
       console.log('Client disconnected:', socket.id);
     });
   });
