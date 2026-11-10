@@ -17,18 +17,35 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+
   server:
     build: ./apps/server
     ports:
       - "4000:4000"
     environment:
       DATABASE_URL: postgresql://collab_user:collab_pass@postgres:5432/collab
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: local_dev_secret_change_in_prod
       PORT: 4000
       NODE_ENV: development
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  redis_data:
